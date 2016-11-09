@@ -1,0 +1,187 @@
+<html>
+  <body>
+   <svg id="canvas" style="width: 1000px, height: 1000px">
+    <!--    <circle id="m1" cx=5 cy=25 r=10 fill="red"></circle>
+      <circle id="m2" cx=55 cy=45 r=10 fill="red"></circle>
+      <circle id="m3" cx=35 cy=65 r=10 fill="red"></circle>
+      <circle id="m4" cx=15 cy=115 r=10 fill="red"></circle>
+       <path d="M 50 50 L 100 100 l 25 0" stroke-width="3" stroke="black"></path>
+    --> </svg>
+    
+  <script type="text/javascript">
+    var globalMouseDown = null
+    var globalMouseMove = null
+    var globalMouseUp = null
+
+
+    function renderCanvas({controls, onMouseDown, onMouseUp, onMouseMove}) {
+      document.body.removeChild(document.getElementById('canvas'))
+      let canvas = document.createElementNS("http://www.w3.org/2000/svg", 'svg')
+      canvas.setAttribute('style', 'width: 1000px, height: 1000px')
+      canvas.setAttribute('id', 'canvas')
+      canvas.setAttribute('draggable', true)
+      controls.forEach((control) => {
+        let c = document.createElementNS("http://www.w3.org/2000/svg", control.type)
+        for (var p in control.props) {
+          c.setAttribute(p, control.props[p])
+        }
+        c.setAttribute('id', 'control-' + control.id)
+        // if (dragState && dragState.id === control.id) {
+        //   c.setAttribute('transform', `translate(${dragState.drag.x}, ${dragState.drag.y})`)
+        // }
+        canvas.appendChild(c)
+      })
+      document.body.appendChild(canvas)
+
+      // clean up and replace event handlers
+      window.removeEventListener('mousedown', globalMouseDown)
+      window.removeEventListener('mouseup', globalMouseUp)
+      window.removeEventListener('mousemove', globalMouseMove)
+
+      globalMouseDown = onMouseDown
+      globalMouseUp = onMouseUp
+      globalMouseMove = onMouseMove
+
+      window.addEventListener('mousedown', globalMouseDown)
+      window.addEventListener('mouseup', globalMouseUp)
+      window.addEventListener('mousemove', globalMouseMove)
+    }
+  </script>
+
+  <script>
+    function getControlsForCircle({cx, cy, r}) {
+      return [
+      {
+        id: 'extra',
+        type: 'path',
+        props: {
+          d: `M ${cx} ${cy} l ${r} 0`,
+          stroke: 'green',
+          'stroke-width': 1
+        }
+      },
+      {
+        id: 'outline',
+        type: 'circle',
+        props: {
+          cx: cx,
+          cy: cy,
+          r: r,
+          fill: 'none',
+          stroke: 'black'
+        }
+      },
+      {
+        id: 'center',
+        type: 'circle',
+        props: {
+          cx: cx,
+          cy: cy,
+          r: 2          
+        }
+      },
+      {
+        id: 'radius',
+        type: 'circle',
+        props: {
+          cx: cx + r,
+          cy: cy,
+          r: 2,
+          fill: 'red'          
+        }
+      }
+    ]
+    }
+
+
+    function render(appModel) {
+      // render circle
+      ///// todo
+
+      // render the canvas controls
+      renderCanvas({
+        controls: getControlsForCircle(appModel.circle),
+        onMouseDown: function(event) {
+          const target = document.elementFromPoint(event.pageX, event.pageY)
+          if (target.id && target.id.startsWith('control-')){
+            console.log(target.id)
+            dispatch({
+              type: 'START_DRAGGING',
+              target: target.id.substring(8),
+              atX: event.pageX, 
+              atY: event.pageY 
+            })
+          }
+        },
+        onMouseUp: function(event) {
+          console.log('mouseup')
+          dispatch({
+            type: 'DONE_DRAGGING',
+            dragging: null
+          })
+        },
+        onMouseMove: function(event) {
+          if (appModel.dragState !== null) {
+            console.log("dragging: ", event.pageX - appModel.dragState.start.x, event.pageY - appModel.dragState.start.y)
+            dispatch({
+              type: 'DRAGGING',
+              atX: event.pageX, 
+              atY: event.pageY
+            })
+          }
+        }
+      })
+    }
+
+    function update(appModel, action) {
+      switch (action.type) {
+      case 'START_DRAGGING':
+        appModel.dragState = {
+          id: action.target,
+          targetModel: Object.assign({}, appModel.circle),
+          start: { x: action.atX, y: action.atY },
+          drag: { x: 0, y: 0}
+        }
+        break
+      case 'DRAGGING':
+        appModel.dragState.drag = { 
+          x: action.atX - appModel.dragState.start.x, 
+          y: action.atY - appModel.dragState.start.y
+        }
+        switch( appModel.dragState.id ) {
+        case 'outline':
+        case 'center':
+          appModel.circle.cx = appModel.dragState.targetModel.cx + appModel.dragState.drag.x
+          appModel.circle.cy = appModel.dragState.targetModel.cy + appModel.dragState.drag.y
+          break
+        case 'radius':
+          appModel.circle.r = appModel.dragState.targetModel.r + appModel.dragState.drag.x
+          break
+        }
+        break
+      case 'DONE_DRAGGING':
+        appModel.dragState = null
+        break
+      }
+      return appModel
+    }
+
+    var appModel = {
+      circle: {
+        cx: 50,
+        cy: 50,
+        r: 30,
+        fill: 'yellow'
+      },
+      dragState: null
+    }
+    function dispatch(action) {
+      appModel = update(appModel, action)
+      render(appModel)
+    }
+
+    render(appModel)
+
+  </script>      
+  </body>
+</html>
