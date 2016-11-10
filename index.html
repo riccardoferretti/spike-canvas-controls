@@ -1,128 +1,284 @@
 <html>
-  <body>
-   <svg id="canvas" style="width: 1000px, height: 1000px">
-    <!--    <circle id="m1" cx=5 cy=25 r=10 fill="red"></circle>
-      <circle id="m2" cx=55 cy=45 r=10 fill="red"></circle>
-      <circle id="m3" cx=35 cy=65 r=10 fill="red"></circle>
-      <circle id="m4" cx=15 cy=115 r=10 fill="red"></circle>
-       <path d="M 50 50 L 100 100 l 25 0" stroke-width="3" stroke="black"></path>
-    --> </svg>
+  <body style="position: absolute">
+   <svg id="canvas" style="">
+   </svg>
+   <svg id="canvas-controls" style="">
+   </svg>
     
   <script type="text/javascript">
     var globalMouseDown = null
     var globalMouseMove = null
     var globalMouseUp = null
 
+    const CanvasControls = {
+      // API
+      // onDragStart onDrag onDragEnd onClick onDoubleClick
+      render: function({controls, onMouseDown, onMouseUp, onDrag}) {
+        document.body.removeChild(document.getElementById('canvas-controls'))
+        let canvas = document.createElementNS("http://www.w3.org/2000/svg", 'svg')
+        canvas.setAttribute('style', 'position: absolute; top: 10; left: 10; width: 1000px; height: 1000px')
+        canvas.setAttribute('id', 'canvas-controls')
+        controls.forEach((control) => {
+          let c = document.createElementNS("http://www.w3.org/2000/svg", control.type)
+          for (var p in control.props) {
+            c.setAttribute(p, control.props[p])
+          }
+          c.setAttribute('id', 'control-' + control.controlId)
+          canvas.appendChild(c)
+        })
+        document.body.appendChild(canvas)
 
-    function renderCanvas({controls, onMouseDown, onMouseUp, onMouseMove}) {
-      document.body.removeChild(document.getElementById('canvas'))
-      let canvas = document.createElementNS("http://www.w3.org/2000/svg", 'svg')
-      canvas.setAttribute('style', 'width: 1000px, height: 1000px')
-      canvas.setAttribute('id', 'canvas')
-      canvas.setAttribute('draggable', true)
-      controls.forEach((control) => {
-        let c = document.createElementNS("http://www.w3.org/2000/svg", control.type)
-        for (var p in control.props) {
-          c.setAttribute(p, control.props[p])
+        // clean up and replace event handlers
+        window.removeEventListener('mousedown', globalMouseDown)
+        window.removeEventListener('mouseup', globalMouseUp)
+        window.removeEventListener('mousemove', globalMouseMove)
+
+        globalMouseDown = function(event) {
+          const target = document.elementFromPoint(event.pageX, event.pageY)
+          if (target.id && target.id.startsWith('control-')){
+            const controlId = target.id.substring(8)
+            const control = controls.filter((c) => { return c.controlId === controlId })[0]
+            onMouseDown(control, event)
+          }
         }
-        c.setAttribute('id', 'control-' + control.id)
-        // if (dragState && dragState.id === control.id) {
-        //   c.setAttribute('transform', `translate(${dragState.drag.x}, ${dragState.drag.y})`)
-        // }
-        canvas.appendChild(c)
-      })
-      document.body.appendChild(canvas)
+        globalMouseUp = onMouseUp
+        globalMouseMove = onDrag
 
-      // clean up and replace event handlers
-      window.removeEventListener('mousedown', globalMouseDown)
-      window.removeEventListener('mouseup', globalMouseUp)
-      window.removeEventListener('mousemove', globalMouseMove)
-
-      globalMouseDown = onMouseDown
-      globalMouseUp = onMouseUp
-      globalMouseMove = onMouseMove
-
-      window.addEventListener('mousedown', globalMouseDown)
-      window.addEventListener('mouseup', globalMouseUp)
-      window.addEventListener('mousemove', globalMouseMove)
+        window.addEventListener('mousedown', globalMouseDown)
+        window.addEventListener('mouseup', globalMouseUp)
+        window.addEventListener('mousemove', globalMouseMove)
+      }
+    }
+    
+    const Canvas = {
+      render: function(shapes) {
+        document.body.removeChild(document.getElementById('canvas'))
+        let canvas = document.createElementNS("http://www.w3.org/2000/svg", 'svg')
+        canvas.setAttribute('style', 'position: absolute; top: 10; left: 10; width: 1000px; height: 1000px')
+        canvas.setAttribute('id', 'canvas')
+        
+        shapes.forEach((shape) => {
+          let c = document.createElementNS("http://www.w3.org/2000/svg", shape.type)
+          c.setAttribute('id', 'shape-' + shape.id)
+          switch (shape.type) {
+          case 'circle':
+            for (var p in shape.props) {
+              c.setAttribute(p, shape.props[p])
+            }
+            break
+          case 'path':
+            const path = shape.props.commands.map( (cmd) => {
+              const params = cmd.params.join(' ')
+              return `${cmd.command} ${params}`
+            }).join(' ')
+            for (var p in shape.props) {
+              c.setAttribute(p, shape.props[p])
+            }
+            c.setAttribute('d', path)
+            break
+          }
+          canvas.appendChild(c)
+        })
+        document.body.appendChild(canvas)
+      }
     }
   </script>
 
   <script>
-    function getControlsForCircle({cx, cy, r}) {
-      return [
-      {
-        id: 'extra',
-        type: 'path',
-        props: {
-          d: `M ${cx} ${cy} l ${r} 0`,
-          stroke: 'green',
-          'stroke-width': 1
-        }
+
+    const PathControls = {
+      createFor: function(path) {
+        const points = path.props.commands.reduce((working, cmd, idx) => {
+          const lastPoint = working[0]
+          const points = working[1]
+          switch (cmd.command) {
+          case 'M':
+          case 'L':
+            return [{x: cmd.params[0], y: cmd.params[1]}, points.concat([{
+              controlId: `p-${idx}-0-1`,
+              targetId: 'p',
+              type: 'rect',
+              props: {
+                x: cmd.params[0] - 1,
+                y: cmd.params[1] - 1,
+                width: 2,
+                height: 2,
+                fill: 'black',
+                stroke: 'black'
+              }            
+            }])]
+            break
+          case 'C':
+            return [{x: cmd.params[0], y: cmd.params[1]}, points.concat([
+            {
+              controlId: 'pline-' + idx,
+              targetId: 'p',
+              type: 'path',
+              props: {
+                d: `M ${cmd.params[0]} ${cmd.params[1]} L ${lastPoint.x} ${lastPoint.y}`,
+                stroke: 'green',
+                'stroke-width': 0.5
+              }
+            },            
+            {
+              controlId: 'pline-' + idx,
+              targetId: 'p',
+              type: 'path',
+              props: {
+                d: `M ${cmd.params[2]} ${cmd.params[3]} L ${cmd.params[4]} ${cmd.params[5]}`,
+                stroke: 'green',
+                'stroke-width': 0.5
+              }
+            },
+            {
+              controlId: `p-${idx}-0-1`,
+              targetId: 'p',
+              type: 'rect',
+              props: {
+                x: cmd.params[0] - 1,
+                y: cmd.params[1] - 1,
+                width: 2,
+                height: 2,
+                fill: 'red',
+                stroke: 'red'
+              }            
+            },
+            {
+              controlId: `p-${idx}-2-3`,
+              targetId: 'p',
+              type: 'rect',
+              props: {
+                x: cmd.params[2] - 1,
+                y: cmd.params[3] - 1,
+                width: 2,
+                height: 2,
+                fill: 'red',
+                stroke: 'red'
+              }            
+            },
+            {
+              controlId: `p-${idx}-4-5`,
+              targetId: 'p',
+              type: 'rect',
+              props: {
+                x: cmd.params[4] - 1,
+                y: cmd.params[5] - 1,
+                width: 2,
+                height: 2,
+                fill: 'black',
+                stroke: 'black'
+              }            
+            }
+            ])]
+            break
+          default:
+            return working
+          }
+        }, [{}, []])
+        return points[1]
       },
-      {
-        id: 'outline',
-        type: 'circle',
-        props: {
-          cx: cx,
-          cy: cy,
-          r: r,
-          fill: 'none',
-          stroke: 'black'
-        }
-      },
-      {
-        id: 'center',
-        type: 'circle',
-        props: {
-          cx: cx,
-          cy: cy,
-          r: 2          
-        }
-      },
-      {
-        id: 'radius',
-        type: 'circle',
-        props: {
-          cx: cx + r,
-          cy: cy,
-          r: 2,
-          fill: 'red'          
-        }
+      handle: function(line, dragState) {
+        const tokens = dragState.controlId.split('-')
+        const pointIndex = tokens[1]
+        const xParamIndex = tokens[2]
+        const yParamIndex = tokens[3]
+        const startX = dragState.targetModel.props.commands[pointIndex].params[xParamIndex]
+        const startY = dragState.targetModel.props.commands[pointIndex].params[yParamIndex]
+        line.props.commands[pointIndex].params[xParamIndex] = startX + dragState.drag.x
+        line.props.commands[pointIndex].params[yParamIndex] = startY + dragState.drag.y
+        return line
       }
-    ]
     }
 
+    const CircleControls = {
+      createFor: function(circle) {
+        const {cx, cy, r} = circle.props
+        return [
+          {
+            controlId: 'extra',
+            targetId: circle.id,
+            type: 'path',
+            props: {
+              d: `M ${cx} ${cy} l ${r} 0`,
+              stroke: 'green',
+              'stroke-width': 1
+            }
+          },
+          {
+            controlId: 'outline',
+            targetId: circle.id,
+            type: 'circle',
+            props: {
+              cx: cx,
+              cy: cy,
+              r: r,
+              fill: 'none',
+              stroke: 'black'
+            }
+          },
+          {
+            controlId: 'center',
+            targetId: circle.id,
+            type: 'circle',
+            props: {
+              cx: cx,
+              cy: cy,
+              r: 2          
+            }
+          },
+          {
+            controlId: 'radius',
+            targetId: circle.id,
+            type: 'circle',
+            props: {
+              cx: cx + r,
+              cy: cy,
+              r: 2,
+              fill: 'red'          
+            }
+          }
+        ]
+      },
+      handle: function(circle, dragState) {
+        switch( dragState.controlId ) {
+        case 'outline':
+        case 'center':
+          circle.props.cx = dragState.targetModel.props.cx + dragState.drag.x
+          circle.props.cy = dragState.targetModel.props.cy + dragState.drag.y
+          break
+        case 'radius':
+          circle.props.r = dragState.targetModel.props.r + dragState.drag.x
+          break
+        }
+        return circle
+      }
+    }
 
     function render(appModel) {
       // render circle
-      ///// todo
+      Canvas.render([appModel.circle, appModel.line])
 
       // render the canvas controls
-      renderCanvas({
-        controls: getControlsForCircle(appModel.circle),
-        onMouseDown: function(event) {
-          const target = document.elementFromPoint(event.pageX, event.pageY)
-          if (target.id && target.id.startsWith('control-')){
-            console.log(target.id)
-            dispatch({
-              type: 'START_DRAGGING',
-              target: target.id.substring(8),
-              atX: event.pageX, 
-              atY: event.pageY 
-            })
-          }
+      const controls = CircleControls.createFor(appModel.circle).concat(PathControls.createFor(appModel.line))
+      CanvasControls.render({
+        controls: controls,
+        onMouseDown: function(control, event) {
+          dispatch({
+            type: 'START_DRAGGING',
+            controlId: control.controlId,
+            targetId: control.targetId,
+            atX: event.pageX, 
+            atY: event.pageY 
+          })
         },
         onMouseUp: function(event) {
-          console.log('mouseup')
           dispatch({
             type: 'DONE_DRAGGING',
             dragging: null
           })
         },
-        onMouseMove: function(event) {
+        onDrag: function(event) {
           if (appModel.dragState !== null) {
-            console.log("dragging: ", event.pageX - appModel.dragState.start.x, event.pageY - appModel.dragState.start.y)
             dispatch({
               type: 'DRAGGING',
               atX: event.pageX, 
@@ -137,26 +293,25 @@
       switch (action.type) {
       case 'START_DRAGGING':
         appModel.dragState = {
-          id: action.target,
-          targetModel: Object.assign({}, appModel.circle),
+          controlId: action.controlId,
+          targetId: action.targetId,
+          targetModel: JSON.parse(JSON.stringify(action.targetId === 'c' ? appModel.circle : appModel.line)),
           start: { x: action.atX, y: action.atY },
           drag: { x: 0, y: 0}
         }
         break
       case 'DRAGGING':
-        appModel.dragState.drag = { 
-          x: action.atX - appModel.dragState.start.x, 
-          y: action.atY - appModel.dragState.start.y
+        const {dragState} = appModel
+        dragState.drag = { 
+          x: action.atX - dragState.start.x, 
+          y: action.atY - dragState.start.y
         }
-        switch( appModel.dragState.id ) {
-        case 'outline':
-        case 'center':
-          appModel.circle.cx = appModel.dragState.targetModel.cx + appModel.dragState.drag.x
-          appModel.circle.cy = appModel.dragState.targetModel.cy + appModel.dragState.drag.y
-          break
-        case 'radius':
-          appModel.circle.r = appModel.dragState.targetModel.r + appModel.dragState.drag.x
-          break
+
+        if (dragState.targetId === 'c') {
+          appModel.circle =  CircleControls.handle(appModel.circle, dragState)
+        } 
+        if (dragState.targetId === 'p') {
+          appModel.line =  PathControls.handle(appModel.line, dragState)
         }
         break
       case 'DONE_DRAGGING':
@@ -168,10 +323,28 @@
 
     var appModel = {
       circle: {
-        cx: 50,
-        cy: 50,
-        r: 30,
-        fill: 'yellow'
+        id: 'c',
+        type: 'circle',
+        props: {
+          cx: 50,
+          cy: 50,
+          r: 30,
+          fill: 'yellow'          
+        }
+      },
+      line: {
+        id: 'p',
+        type: 'path',
+        props: {
+          fill: 'none',
+          stroke: 'blue',
+          commands: [
+            { command: 'M', params: [0, 0] },
+            { command: 'L', params: [0, 10] },
+            { command: 'L', params: [10, 10] },
+            { command: 'C', params: [10, 5, 100, 55, 100, 10] }
+          ]          
+        }
       },
       dragState: null
     }
